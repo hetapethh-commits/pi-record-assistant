@@ -18,14 +18,15 @@ pi remove git:github.com/hetapethh-commits/pi-record-assistant
 
 ## 渠道边界
 
-Pi 的输入事件没有提供 WeChat、WeCom 等具体渠道名。本扩展使用渠道适配器可验证
-的会话边界：仅处理 `print` 模式且会话目录位于 Pi 标准用户会话目录之外的输入。
-`omp-wechat` 使用这种 headless 自定义会话，已纳入测试；采用相同 Pi SDK 会话结构
-的 WeCom 或其他渠道适配器也适用。
+Pi 的输入事件没有提供 WeChat、WeCom 等具体渠道名，因此本扩展只处理已明确注册
+的渠道会话根目录。当前默认支持 `omp-wechat` 的
+`~/.omp-wechat/sessions`：消息还必须同时来自 `interactive` source 和 `print`
+模式，才会进入记录逻辑。
 
-这意味着本地自建的 headless SDK 如果也使用自定义会话目录，会被视为外部渠道；
-未采用这种会话结构的渠道适配器则不会被识别。Pi 暴露渠道元数据后，可以改为按
-明确的渠道标识判断。
+本地 TUI、RPC、JSON、标准 print、本地自建 headless SDK，以及 extension 注入的
+内部消息都直接交给 Pi。当前 `@amaster.ai/pi-wecom` 提供 WeCom 工作区技能和 CLI，
+不是入站消息桥接，所以没有可被本扩展处理的 WeCom 入站消息；未来的入站适配器需
+先提供稳定的会话根目录，再显式加入支持列表。
 
 ## 模式
 

@@ -4,6 +4,7 @@ import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionContext,
+  InputEvent,
 } from "@earendil-works/pi-coding-agent";
 
 type RecordMode = "unprefixed" | "prefixed";
@@ -63,15 +64,16 @@ function isInsideDirectory(parent: string, candidate: string): boolean {
 }
 
 function isExternalChannelInput(
+  event: InputEvent,
   ctx: ExtensionContext,
-  agentDir: string,
+  channelSessionRoots: readonly string[],
 ): boolean {
+  if (event.source !== "interactive") return false;
   if (ctx.mode !== "print") return false;
 
-  // Pi lacks channel metadata; omp-wechat uses print mode with custom sessions.
-  return !isInsideDirectory(
-    join(agentDir, "sessions"),
-    ctx.sessionManager.getSessionDir(),
+  const sessionDir = ctx.sessionManager.getSessionDir();
+  return channelSessionRoots.some((root) =>
+    isInsideDirectory(root, sessionDir),
   );
 }
 
@@ -120,7 +122,10 @@ async function saveMode(
   );
 }
 
-export function createRecordAssistant(configDirName: string, agentDir: string) {
+export function createRecordAssistant(
+  configDirName: string,
+  channelSessionRoots: readonly string[],
+) {
   return function recordAssistant(pi: ExtensionAPI) {
     let mode: RecordMode = "unprefixed";
     let recordQueue: Promise<void> = Promise.resolve();
@@ -192,7 +197,7 @@ export function createRecordAssistant(configDirName: string, agentDir: string) {
         return { action: "continue" };
       }
 
-      if (!isExternalChannelInput(ctx, agentDir)) {
+      if (!isExternalChannelInput(event, ctx, channelSessionRoots)) {
         return { action: "continue" };
       }
 

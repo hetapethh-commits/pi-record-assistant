@@ -23,7 +23,8 @@ import type {
 import { createRecordAssistant } from "../extensions/record-assistant/extension.ts";
 
 const testAgentDir = join(tmpdir(), "pi-record-assistant-agent");
-const recordAssistant = createRecordAssistant(".pi", testAgentDir);
+const testChannelSessionRoot = join(tmpdir(), "omp-wechat", "sessions");
+const recordAssistant = createRecordAssistant(".pi", [testChannelSessionRoot]);
 
 type InputHandler = (
   event: InputEvent,
@@ -110,7 +111,7 @@ async function createTestContext(
       getSessionDir() {
         return (
           options.sessionDir ??
-          join(tmpdir(), "omp-wechat", "sessions", "test-chat")
+          join(testChannelSessionRoot, "test-chat")
         );
       },
     },
@@ -187,6 +188,31 @@ test("extension-injected input in a local session bypasses record routing", asyn
   );
 });
 
+test("extension-injected input in a channel session bypasses record routing", async (t) => {
+  const ctx = await createTestContext(t);
+  const handleInput = registerInputHandler();
+
+  const result = await handleInput(
+    {
+      type: "input",
+      text: "Internal channel-session follow-up",
+      source: "extension",
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    {
+      result,
+      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+    },
+    {
+      result: { action: "continue" },
+      recordsDirectoryExists: false,
+    },
+  );
+});
+
 test("local print-mode input bypasses record routing", async (t) => {
   const ctx = await createTestContext(t, {
     mode: "print",
@@ -198,6 +224,34 @@ test("local print-mode input bypasses record routing", async (t) => {
     {
       type: "input",
       text: "Ask Pi from a local print session",
+      source: "interactive",
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    {
+      result,
+      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+    },
+    {
+      result: { action: "continue" },
+      recordsDirectoryExists: false,
+    },
+  );
+});
+
+test("unrecognized headless SDK input bypasses record routing", async (t) => {
+  const ctx = await createTestContext(t, {
+    mode: "print",
+    sessionDir: join(tmpdir(), "local-sdk", "sessions", "test-session"),
+  });
+  const handleInput = registerInputHandler();
+
+  const result = await handleInput(
+    {
+      type: "input",
+      text: "Ask Pi from a custom local SDK",
       source: "interactive",
     },
     ctx,
@@ -667,7 +721,7 @@ test("concurrent recording preserves every note in the daily file", async (t) =>
   const results = await Promise.all(
     notes.map((text) =>
       handleInput(
-        { type: "input", text, source: "rpc" },
+        { type: "input", text, source: "interactive" },
         ctx,
       ),
     ),
