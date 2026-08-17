@@ -1,0 +1,42 @@
+{
+  "name": "pi-record-assistant",
+  "version": "0.1.0",
+  "description": "A Pi extension that routes terminal input to daily Markdown notes or the agent.",
+  "private": true,
+  "type": "module",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "markdown",
+    "notes"
+  ],
+  "engines": {
+    "node": ">=22.19"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/record-assistant/index.ts"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hetapethh-commits/pi-record-assistant.git"
+  },
+  "homepage": "https://github.com/hetapethh-commits/pi-record-assistant#readme",
+  "bugs": {
+    "url": "https://github.com/hetapethh-commits/pi-record-assistant/issues"
+  },
+  "files": [
+    "extensions",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/record-assistant.test.ts",
+    "verify:package": "node scripts/verify-package.mjs .",
+    "check": "npm test && npm run verify:package",
+    "release:github": "bash scripts/release-github.sh"
+  }
+}
