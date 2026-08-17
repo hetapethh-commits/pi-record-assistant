@@ -1,7 +1,10 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 
 type RecordMode = "unprefixed" | "prefixed";
 
@@ -49,10 +52,33 @@ function modeFilePath(cwd: string, configDirName: string): string {
   return join(cwd, configDirName, "record-assistant.json");
 }
 
+function isInsideDirectory(parent: string, candidate: string): boolean {
+  const pathFromParent = relative(resolve(parent), resolve(candidate));
+  return (
+    pathFromParent === "" ||
+    (pathFromParent !== ".." &&
+      !pathFromParent.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromParent))
+  );
+}
+
+function isExternalChannelInput(
+  ctx: ExtensionContext,
+  agentDir: string,
+): boolean {
+  if (ctx.mode !== "print") return false;
+
+  // Pi lacks channel metadata; omp-wechat uses print mode with custom sessions.
+  return !isInsideDirectory(
+    join(agentDir, "sessions"),
+    ctx.sessionManager.getSessionDir(),
+  );
+}
+
 function modeDescription(mode: RecordMode): string {
   return mode === "unprefixed"
-    ? "记录模式：普通输入记录，- 开头交给 Pi"
-    : "记录模式：- 开头记录，普通输入交给 Pi";
+    ? "外部渠道模式：普通输入记录，- 开头交给 Pi"
+    : "外部渠道模式：- 开头记录，普通输入交给 Pi";
 }
 
 async function loadMode(
@@ -94,7 +120,7 @@ async function saveMode(
   );
 }
 
-export function createRecordAssistant(configDirName: string) {
+export function createRecordAssistant(configDirName: string, agentDir: string) {
   return function recordAssistant(pi: ExtensionAPI) {
     let mode: RecordMode = "unprefixed";
     let recordQueue: Promise<void> = Promise.resolve();
@@ -162,7 +188,11 @@ export function createRecordAssistant(configDirName: string) {
     });
 
     pi.on("input", async (event, ctx) => {
-      if (event.source === "extension" || event.text.startsWith("/")) {
+      if (event.text.startsWith("/")) {
+        return { action: "continue" };
+      }
+
+      if (!isExternalChannelInput(ctx, agentDir)) {
         return { action: "continue" };
       }
 

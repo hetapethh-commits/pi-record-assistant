@@ -1,7 +1,7 @@
 {
   "name": "pi-record-assistant",
-  "version": "0.1.0",
-  "description": "A Pi extension that routes terminal input to daily Markdown notes or the agent.",
+  "version": "0.2.0",
+  "description": "A Pi extension that routes external-channel input to daily Markdown notes or the agent.",
   "private": true,
   "type": "module",
   "keywords": [

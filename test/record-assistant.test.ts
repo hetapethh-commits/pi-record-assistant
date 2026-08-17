@@ -22,7 +22,8 @@ import type {
 
 import { createRecordAssistant } from "../extensions/record-assistant/extension.ts";
 
-const recordAssistant = createRecordAssistant(".pi");
+const testAgentDir = join(tmpdir(), "pi-record-assistant-agent");
+const recordAssistant = createRecordAssistant(".pi", testAgentDir);
 
 type InputHandler = (
   event: InputEvent,
@@ -48,6 +49,11 @@ type TestExtensionContext = ExtensionContext &
   ExtensionCommandContext & {
     notifications: Notification[];
   };
+
+type TestContextOptions = {
+  mode?: ExtensionContext["mode"];
+  sessionDir?: string;
+};
 
 function registerExtension() {
   let inputHandler: InputHandler | undefined;
@@ -87,7 +93,10 @@ function registerInputHandler(): InputHandler {
   return registerExtension().handleInput;
 }
 
-async function createTestContext(t: TestContext): Promise<TestExtensionContext> {
+async function createTestContext(
+  t: TestContext,
+  options: TestContextOptions = {},
+): Promise<TestExtensionContext> {
   const cwd = await mkdtemp(join(tmpdir(), "pi-record-assistant-"));
   const notifications: Notification[] = [];
   t.after(() => rm(cwd, { recursive: true, force: true }));
@@ -95,7 +104,16 @@ async function createTestContext(t: TestContext): Promise<TestExtensionContext> 
   return {
     cwd,
     hasUI: true,
+    mode: options.mode ?? "print",
     notifications,
+    sessionManager: {
+      getSessionDir() {
+        return (
+          options.sessionDir ??
+          join(tmpdir(), "omp-wechat", "sessions", "test-chat")
+        );
+      },
+    },
     ui: {
       notify(message: string, type?: Notification["type"]) {
         notifications.push({ message, type });
@@ -112,6 +130,121 @@ async function pathExists(path: string): Promise<boolean> {
     return false;
   }
 }
+
+test("local terminal input bypasses record routing", async (t) => {
+  const ctx = await createTestContext(t, {
+    mode: "tui",
+    sessionDir: join(testAgentDir, "sessions", "local-project"),
+  });
+  const handleInput = registerInputHandler();
+
+  const result = await handleInput(
+    {
+      type: "input",
+      text: "Ask Pi from the local terminal",
+      source: "interactive",
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    {
+      result,
+      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+    },
+    {
+      result: { action: "continue" },
+      recordsDirectoryExists: false,
+    },
+  );
+});
+
+test("extension-injected input in a local session bypasses record routing", async (t) => {
+  const ctx = await createTestContext(t, {
+    mode: "tui",
+    sessionDir: join(testAgentDir, "sessions", "local-project"),
+  });
+  const handleInput = registerInputHandler();
+
+  const result = await handleInput(
+    {
+      type: "input",
+      text: "Internal extension follow-up",
+      source: "extension",
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    {
+      result,
+      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+    },
+    {
+      result: { action: "continue" },
+      recordsDirectoryExists: false,
+    },
+  );
+});
+
+test("local print-mode input bypasses record routing", async (t) => {
+  const ctx = await createTestContext(t, {
+    mode: "print",
+    sessionDir: join(testAgentDir, "sessions", "local-project"),
+  });
+  const handleInput = registerInputHandler();
+
+  const result = await handleInput(
+    {
+      type: "input",
+      text: "Ask Pi from a local print session",
+      source: "interactive",
+    },
+    ctx,
+  );
+
+  assert.deepEqual(
+    {
+      result,
+      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+    },
+    {
+      result: { action: "continue" },
+      recordsDirectoryExists: false,
+    },
+  );
+});
+
+test("local RPC and JSON inputs bypass record routing", async (t) => {
+  for (const mode of ["rpc", "json"] as const) {
+    const ctx = await createTestContext(t, {
+      mode,
+      sessionDir: join(testAgentDir, "sessions", `local-${mode}`),
+    });
+    const handleInput = registerInputHandler();
+
+    const result = await handleInput(
+      {
+        type: "input",
+        text: `Ask Pi from local ${mode} mode`,
+        source: mode === "rpc" ? "rpc" : "interactive",
+      },
+      ctx,
+    );
+
+    assert.deepEqual(
+      {
+        result,
+        recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+      },
+      {
+        result: { action: "continue" },
+        recordsDirectoryExists: false,
+      },
+      `${mode} mode must bypass record routing`,
+    );
+  }
+});
 
 test("default mode records an unprefixed message without invoking the agent", async (t) => {
   t.mock.timers.enable({
@@ -265,15 +398,19 @@ test("selected mode survives extension reloads", async (t) => {
   );
 });
 
-test("extension-injected input bypasses recording", async (t) => {
+test("omp-wechat-style headless input follows record routing", async (t) => {
+  t.mock.timers.enable({
+    apis: ["Date"],
+    now: new Date(2026, 7, 17, 14, 23, 45),
+  });
   const ctx = await createTestContext(t);
   const handleInput = registerInputHandler();
 
   const result = await handleInput(
     {
       type: "input",
-      text: "Internal follow-up",
-      source: "extension",
+      text: "External channel note",
+      source: "interactive",
     },
     ctx,
   );
@@ -281,11 +418,14 @@ test("extension-injected input bypasses recording", async (t) => {
   assert.deepEqual(
     {
       result,
-      recordsDirectoryExists: await pathExists(join(ctx.cwd, "records")),
+      content: await readFile(
+        join(ctx.cwd, "records", "2026-08-17.md"),
+        "utf8",
+      ).catch(() => null),
     },
     {
-      result: { action: "continue" },
-      recordsDirectoryExists: false,
+      result: { action: "handled" },
+      content: "# 2026-08-17\n\n## 14:23:45\n\nExternal channel note\n",
     },
   );
 });
@@ -315,7 +455,7 @@ test("status reports the current mode without changing it", async (t) => {
     {
       notifications: [
         {
-          message: "记录模式：普通输入记录，- 开头交给 Pi",
+          message: "外部渠道模式：普通输入记录，- 开头交给 Pi",
           type: "info",
         },
       ],
